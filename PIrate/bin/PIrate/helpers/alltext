@@ -1,0 +1,106 @@
+#!/bin/bash
+
+# Prints a glamurous banner <3
+function banner {
+	clear;
+	echo ' _____     ______                      __               ';
+	echo '/\  _ `\  /\__  _\                    /\ \__            ';
+	echo '\ \ \_\ \ \/_/\ \/     _ __      __   \ \ ,_\      __   ';
+	echo ' \ \ ,__/    \ \ \    /\` __\  / __ \  \ \ \/    / __`\ ';
+	echo '  \ \ \/      \_\ \__ \ \ \/  /\ \_\.\_ \ \ \_  /\  __/ ';
+	echo '   \ \_\      /\_____\ \ \_\  \ \__/.\_\ \ \__\ \ \____\';
+	echo '    \/_/      \/_____/  \/_/   \/__/\/_/  \/__/  \/____/';
+	echo '';                                                
+	echo '';                                                
+	echo 'By Pyth0nK1d with Love <3';
+	echo '';                                                
+}
+
+# Prints the menu of available options
+function menu {
+	echo '======================================================================';  
+	echo '========================= \/\/\/ MENU \/\/\/ ========================='; 
+	echo '======================================================================';                                              
+	echo ''; 
+	echo '===================== SHOW CONFIGURED ACTIONS ========================';
+	echo '';
+	echo '[1] Show startup actions (system startup checks)';
+	echo '[2] Show recurring actions (monitors)';
+	echo '[3] Show exception actions (on demand checks)';
+	echo ''; 
+	echo '========================== MANAGE ACTIONS ============================';
+	echo ''; 
+	echo '[4] Add a new action';
+	echo '[5] Remove an action';
+	echo '[6] Execute an exception action';
+	echo '[7] Export all actions';
+	echo '[8] Import all actions';
+	echo '';
+	echo '======================== OTHER OPERATIONS ============================';
+	echo ''; 
+	echo '[Q] Exit utility';
+}
+
+# Show general info related to cronjob interval definition
+function show_general_cron_info {
+	clear;
+	echo 'The interval expression is made of five fields, which will be requested in this order: minute, hour, day of the month, month, day of the week.';
+	echo 'This way, it is possible to define the interval of execution for a recurring action.';
+	echo '';
+	echo 'On each field can also be defined more complex expressions than a single value to provide flexibility on execution interval configuration, based on linux cronjobs configuration';
+	echo 'List of values: comma-separated list which defines when to trigger the action on more than one specified values. (example list input: 2,4,8,14)';
+	echo 'Range of values: hyphen-separated values which defines a range of more than one values about when to trigger the action. (example range input: 2-17)';
+	echo 'Step value: A stepping value defined to trigger the job in an equally defined interval (example: */30)';
+	echo '';
+	echo 'Next, the fields will be requested, accompanied by the range of valid values for each field. Specify an specific single valid value or specify "*" which means all valid values are selected for this field.';
+	echo 'It is also possible to combine those valid values with the complex expressions specified.';
+	echo ''
+	
+}
+
+# Show minute information for input reference
+function show_min_cron_info {
+	show_general_cron_info
+	echo 'Valid values for minutes in an hour: Numbers between 0 and 59';
+}
+
+# Show hour information for input reference
+function show_hou_cron_info {
+	show_general_cron_info
+	echo 'Valid values for hours of a day: Numbers between 0 and 23';
+}
+
+# Show day of the month information for input reference
+function show_dom_cron_info {
+	show_general_cron_info
+	echo 'Valid values for day of the month: Numbers between 1 and 31';
+}
+
+# Show month information for input reference
+function show_mon_cron_info {
+	show_general_cron_info
+	echo 'Valid values for month: Numbers between 1 and 12';
+}
+
+# Show day of the week information for input information
+function show_dow_cron_info {
+	show_general_cron_info
+	echo 'Valid values for day of the week: Numbers between 0 and 6';
+	echo 'The values are defined as the following:';
+	echo '0 -> SUNDAY';
+	echo '1 -> MONDAY';
+	echo '2 -> TUESDAY';
+	echo '3 -> WEDNESDAY';
+	echo '4 -> THURSDAY';
+	echo '5 -> FRIDAY';
+	echo '6 -> SATURDAY';
+}
+
+# Show add action summary banner
+function show_add_action_summary_banner {
+	clear;
+	echo '======================================================================';  
+	echo '======================= ADD ACTION - SUMMARY ========================='; 
+	echo '======================================================================';                                              
+	echo ''; 
+}

@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Import main configuration file
+. /etc/PIrate/PIrate.conf
+
+# Import base operations module
+. /bin/PIrate/helpers/base
+
+if [ -n "$1" ]; then
+	# Recover the command to execute
+	echo "### Command executed: $1";
+	echo "### Date and time of execution: `TZ=$TIMEZONE; export TZ; date +%c`";
+	echo '';
+	echo "`$1`";
+	echo '';
+	echo "=================================================================";
+	echo '';
+else
+
+	# Main menu
+	while :
+	do
+	  	banner;
+		menu;
+		echo '';
+		echo -n "Select an option: ";
+		read option;
+		case $option in
+		  1)
+		    show_startup_actions
+		    ;;
+		  2)
+		    show_recurring_actions 
+		    ;;
+		  3)
+		    show_exception_actions
+		    ;;
+		  4)
+		    add_new_action
+		    ;;
+		  5)
+		    remove_action
+		    ;;
+		  6)
+		    execute_exception_action
+		    ;;
+		  7)
+		    export_actions
+		    ;;
+		  8)
+		    import_actions
+		    ;;
+		  Q | q)
+		    clear
+		    exit 0
+		    ;;
+		  *)
+		    echo -n 'Please select a valid option! Hit Enter key to continue'
+		    # Wait for user interaction
+		    read back
+		    ;;
+		esac
+		echo ''
+	done
+fi
+
+

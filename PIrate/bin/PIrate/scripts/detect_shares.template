@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# Import configuration file
+. /etc/PIrate/PIrate.conf
+
+### TEMPLATE TO DETECT PUBLICLY VISIBLE SHARES ON SPECIFIC HOST ###
+# This script is essentially a functional template to showcase how to set a more complex task and define the detection logic to send a notification to the administrator.
+
+# IMPORTANT NOTE: In order to work properly, setting a script like this as the command of a "startup" action, it will require to amend a "sleep 60;" to the command, specially if it is customized to send a notification like this one. 
+# You will have to use "crontab -e" to modify and include just the "sleep 60;" statement like this (once you detect the corresponding cron): "@reboot sleep 60;<PIrate command> <your command> >> <dynamic log file>"
+
+# Note you can have these variables as environment variables instead to manage them more flexibly. Comment them on this case. 
+
+
+PUBLIC_SHARES=();
+# Single IP address
+IP=<SPECIFY_IP_ADRRESS>;
+# Check if any share was detected
+detection="0";
+
+echo "Checking for public shares on $IP...";
+results=$(smbclient -L \\$IP -N 2>/dev/null);
+sharenames="";
+
+if [ -n "$results" ]; then
+	shares=$(echo "$results" | grep Disk);
+	sharenames=$(echo "$shares" | sed 's/|/ /' | awk '{print $1}' | tr '\n' ,);
+	sharenames=$(echo "${sharenames::-1}");
+	if [ -n "$sharenames" ]; then
+		detection="1";
+	fi
+fi
+
+echo '';
+
+if [ "$detection" = "0" ]; then
+	echo " -- No public shares found on host $IP --";
+else
+	# List shares found
+	echo "Shares detected: $sharenames";
+	
+	# Prepare and send email
+	mail_template=$(cat "$MAIL_TEMPLATES_DIRECTORY"/shares.html);
+	eval "mail_body=\"$mail_template\"";
+	echo "$mail_body" > /tmp/shares.html;
+	
+	# Use swaks tool to send the email (correct parameters may vary on the SMTP server configuration)
+	swaks -t "$MAIL_TO" --from "$MAIL_FROM" --server "$MAIL_SERVER" --port "$MAIL_PORT" --attach-type text/html --attach-body @"/tmp/shares.html" --header 'Subject: PIrate Notification - Public shares detected' --suppress-data -au "$MAIL_USERNAME" -ap "$MAIL_PASSWORD" -tls 1>/dev/null 2>/dev/null
+	
+	# Cleanup
+	rm /tmp/shares.html
+fi
+
+
+
+
