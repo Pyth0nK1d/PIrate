@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Gives permissions and ownership of current user context to the provided path
+function own_path_under_current_context {
+	context=$(whoami);
+   	chmod -R 700 "$1";
+    	chown -R $context:$context "$1";
+}
+
+# Gives proper permissions to an specific directory under the current user context
+function own_specific_directory_under_current_context {
+	chmod 700 "$1";
+}
+
+# Gives proper permissions to non executable files under the current user context
+function own_files_under_current_context {
+	chmod 600 "$1/*";
+}
+
+# Gives proper permissions to an specific file under the current user context
+function own_specific_file_under_current_context {
+	chmod 600 "$1";
+}

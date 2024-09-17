@@ -1,0 +1,279 @@
+#!/bin/bash
+
+# Initializes the SQLite database
+function initialize_database {
+	# If database file does not exist, exit
+	if [ -z $DATABASE_FILE_PATH ]; then
+		echo -n "Please, set the database file path on configuration before continue.";
+		exit 1;
+	fi
+	
+	sqlite3 $DATABASE_FILE_PATH "
+	CREATE TABLE action (id INTEGER, alias TEXT NOT NULL UNIQUE, type TEXT NOT NULL, description TEXT, command TEXT NOT NULL, recurring_interval TEXT NOT NULL, PRIMARY KEY(id AUTOINCREMENT));
+	";                                  
+}
+
+# Show configured actions by their type
+function show_actions_by_type {
+	clear
+	if [ "$1" == "startup" ]; then         
+		statement='SELECT alias,description,command FROM action WHERE type LIKE "startup" order by alias';
+		type='startup';
+	elif [ "$1" == "recurring" ]; then
+		statement='SELECT alias,description,command,recurring_interval FROM action WHERE type LIKE "recurring" order by alias';
+		type='recurring';
+	else
+		statement='SELECT alias,description,command FROM action WHERE type LIKE "exception" order by alias';
+		type='exception';
+	fi
+	echo "===================================================================================";
+	echo "                           SHOWING ACTIONS: $type                                  ";
+	echo "===================================================================================";
+	echo '';
+	result=$(sqlite3 -header -box $DATABASE_FILE_PATH "$statement");
+	if [ -z "$result" ]; then
+        	echo " --- No \"$type\" actions defined ---"
+        else
+		echo "$result";
+	fi 
+	echo '';
+}
+
+
+function persist_action {
+	sqlite3 $DATABASE_FILE_PATH "
+	INSERT INTO action (alias,type,description,command,recurring_interval) VALUES (\"$1\", \"$2\", \"$3\", \"$4\", \"$5\");
+	";  
+	
+	# Extract the id of the action
+	statement="SELECT id FROM action WHERE alias LIKE '%$1%'";
+	id=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+	# Extract the id of the action
+	statement="SELECT command FROM action WHERE alias LIKE '%$1%'";
+	command=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+	# Extract the type of the action
+	statement="SELECT type FROM action WHERE alias LIKE '%$1%'";
+	type=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+	# Separate the logs logically by date generated and action id
+	typelogdir="$LOG_DIRECTORY_PATH/$type";
+	logdir="$typelogdir/$id";
+	logfile="$logdir/\`date +\%Y\%m\%d\`.log";
+	
+	# Create the directory if it does not exist and set proper permissions
+	if ! [ -d $logdir ]; then
+		mkdir -p $logdir;
+		own_path_under_current_context "$LOG_DIRECTORY_PATH"
+	fi
+	
+	# Required crontab inclusion if action type is startup or recurring
+	if [ "$type" = "startup" ] || [ "$type" = "recurring" ]; then
+		# Add the action to the cronjob system
+		crontab -l > /tmp/cron.jobs;
+		echo "$5 $MAIN_BINARY_PATH \"$command\" >> $logfile" >> /tmp/cron.jobs;
+		crontab < /tmp/cron.jobs; 
+		rm /tmp/cron.jobs;
+	fi
+	
+}
+
+function remove_action_by_type {
+	alias='';
+	while [ -z "$alias" ];
+	do
+		if [ "startup" = "$1" ]; then
+			show_actions_by_type "startup";
+		elif [ "recurring" = "$1" ]; then
+			show_actions_by_type "recurring";
+		else
+			show_actions_by_type "exception";
+		fi
+		echo -n "Copy and paste the alias of the desired action to remove it. To go back to type selection, use letter 'B' instead: "
+		read alias
+		alias="${alias//[^a-zA-Z0-9\ \-\_]/}" && \
+		alias="${alias,,}";
+		
+		if [ "$alias" == "b" ] || [ "$alias" == "B" ]; then
+			break
+		else
+			# Check if the alias exists for the selected type
+			statement="SELECT alias FROM action WHERE type LIKE '%$1%' AND alias LIKE '%$alias' AND alias LIKE '$alias%'";
+			db_alias=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+			if [ "$db_alias" = "$alias" ]; then
+				remove_action_by_alias "$alias" "$1"
+				echo -n "Hit Enter to continue.";
+				read back;
+			else
+				echo -n "The alias specified does not exist for the selected action type. Please, hit Enter and try a different one.";
+				alias='';
+				read back;
+			fi
+		fi
+	done
+}
+
+function remove_action_by_alias {
+	# Extract the id of the action
+	statement="SELECT id FROM action WHERE alias LIKE '%$1' AND alias LIKE '$1%'";
+	id=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+	# Get the type
+	type="$2";
+	
+	# Extract the action information by type
+	if [ "$type" == "startup" ]; then         
+		statement="SELECT alias,type,description,command FROM action WHERE alias LIKE '%$1' AND alias LIKE '$1%'";
+	elif [ "$type" == "recurring" ]; then
+		statement="SELECT alias,type,description,command,recurring_interval FROM action WHERE alias LIKE '%$1' AND alias LIKE '$1%'";
+	else
+		statement="SELECT alias,type,description,command FROM action WHERE alias LIKE '%$1' AND alias LIKE '$1%'";
+	fi
+	
+	logs='';
+	while [ -z "$logs" ];
+	do
+		echo -n "Remove the logs associated to the action too? Use letter 'Y' to confirm and any other key to cancel: "
+		read logs
+	done
+	
+	# Action specific directory where its logs are stored
+	logdir="$LOG_DIRECTORY_PATH/$type/$id";
+	
+	# Show the remove summary
+	action=$(sqlite3 -header -box $DATABASE_FILE_PATH "$statement");
+	clear;
+	echo "===================================================================================";
+	echo "                           REMOVE ACTION - SUMMARY                                 ";
+	echo "===================================================================================";
+	echo '';
+	echo "$action";
+	echo "Action logs path: $logdir"
+	if [ "$logs" == "y" ] || [ "$logs" == "Y" ]; then
+		echo "Remove action logs: YES";
+	else
+		echo "Remove action logs: NO";
+	fi
+	echo '';
+	
+	# Ask for confirmation
+	confirmation='';
+	while [ -z "$confirmation" ];
+	do
+		echo -n "The specified action will be removed. Use letter 'Y' to confirm and any other key to cancel: "
+		read confirmation
+		
+		if [ "$confirmation" == "y" ] || [ "$confirmation" == "Y" ]; then
+			# Remove the cronjob set for the action if it is type startup or recurring
+			if [ "$type" == "startup" ] || [ "$type" == "recurring" ]; then
+				crontab -l > /tmp/cron.jobs;
+				grep -v "$logdir" /tmp/cron.jobs > /tmp/cron.jobs.2;
+				crontab < /tmp/cron.jobs.2; 
+				rm /tmp/cron.jobs;
+				rm /tmp/cron.jobs.2;
+			fi
+			
+			# Remove the action from database using id
+			statement="DELETE FROM action WHERE id = $id";
+			sqlite3 $DATABASE_FILE_PATH "$statement";
+			
+			if [ "$logs" == "y" ] || [ "$logs" == "Y" ]; then
+				rm -rf "$logdir";
+			fi
+			
+			echo "Action deleted successfully!";
+		else
+			echo "Action deletion cancelled.";
+		fi
+	done
+	
+}
+
+function get_exception_action_command {
+	# Define the type of the action
+	type="exception";
+	
+	# Extract the id of the action
+	statement="SELECT id FROM action WHERE type LIKE '%$type%' AND alias LIKE '%$1' AND alias LIKE '$1%'";
+	id=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+	# Extract the command of the action	
+	statement="SELECT command FROM action WHERE type LIKE '%$type%' AND alias LIKE '%$1' AND alias LIKE '$1%'"
+	command=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+	if [ -n "$command" ]; then
+		# Build the path to log file to store the execution output
+		typelogdir="$LOG_DIRECTORY_PATH/$type";
+		logdir="$typelogdir/$id";
+		logfile="$logdir/`date +\%Y\%m\%d`.log";
+		
+		# Execute action command and send the output to stdout and log file
+		# First, resolve the command in case it uses variables on it, and then execute it
+		eval "resolve_command=\"$command\"";
+		echo "`$MAIN_BINARY_PATH \"$resolve_command\" | tee -a $logfile`";
+		own_specific_file_under_current_context "$logfile";
+	
+		echo "Command executed! The execution output has been stored on the corresponding log file.";
+		echo "Log file path: $logfile";
+		echo "Hit Enter to continue.";
+	else
+		echo "No exception action found with that alias. Hit Enter and try a different one.";
+	fi 
+}
+
+function export_actions_to_zip {
+	export_tmp="$EXPORT_DIRECTORY_PATH/tmp";
+	if [ ! -d $export_tmp ]; then
+		mkdir -p "$export_tmp";
+		own_path_under_current_context "$export_tmp";
+	fi
+	
+	# Dump PIrate database
+	sqlite3 "$DATABASE_FILE_PATH" ".dump" > "$export_tmp/PIrate.db";
+	
+	# Extract PIrate cronjobs
+	crontab -l > "$export_tmp/PIrate.cron";
+	
+	# Get a copy of the current logfiles
+	cp -ar "$LOG_DIRECTORY_PATH" "$export_tmp/PIrate.logs";
+	
+	# Compress the export contents into the ZIP file path provided
+	cd "$export_tmp";
+	zip -r "$1" "PIrate.db" "PIrate.cron" "PIrate.logs" > /dev/null;
+	own_specific_file_under_current_context "$1";
+	
+	# Cleanup temporary files
+	rm "$export_tmp/PIrate.db"
+	rm "$export_tmp/PIrate.cron"
+	rm -rf "$export_tmp/PIrate.logs"
+}
+
+function import_actions_from_zip {
+	import_tmp="$IMPORT_DIRECTORY_PATH/tmp";
+	unzip "$1" -d "$import_tmp" 1>/dev/null;
+	
+	# Change logs name to properly import them
+	logdir=$(basename "$LOG_DIRECTORY_PATH");
+	mv "$import_tmp/PIrate.logs" "$import_tmp/$logdir";
+
+	# Import PIrate database
+	if [ -f $DATABASE_FILE_PATH ]; then
+		rm "$DATABASE_FILE_PATH";
+	fi
+	sqlite3 "$DATABASE_FILE_PATH" ".read $import_tmp/PIrate.db";
+	
+	# Apply PIrate cronjobs
+	crontab < "$import_tmp/PIrate.cron"; 
+	
+	# Set up logfiles
+	rm -rf "$LOG_DIRECTORY_PATH";
+	cp -ar "$import_tmp/$logdir/" "$LOG_DIRECTORY_PATH";
+	own_specific_directory_under_current_context "$LOG_DIRECTORY_PATH";
+
+	# Cleanup temporary files
+	rm "$import_tmp/PIrate.db"
+	rm "$import_tmp/PIrate.cron"
+	rm -rf "$import_tmp/$logdir"
+}

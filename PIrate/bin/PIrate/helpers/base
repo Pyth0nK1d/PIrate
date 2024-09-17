@@ -1,0 +1,432 @@
+#!/bin/bash
+
+# Import security operations module
+. /bin/PIrate/helpers/security
+
+# Import database operations module
+. /bin/PIrate/helpers/database
+
+# Import only text operations module
+. /bin/PIrate/helpers/alltext
+
+# If it is the first execution, do basic initialization operations
+if [ ! -f $DATABASE_FILE_PATH ]; then
+    initialize_database
+    own_path_under_current_context "/bin/PIrate";
+    own_path_under_current_context "/etc/PIrate";
+    own_specific_file_under_current_context "/etc/PIrate/PIrate.conf";
+    own_specific_file_under_current_context "$DATABASE_FILE_PATH";
+fi
+
+if [ ! -d $LOG_DIRECTORY_PATH ]; then
+    mkdir -p "$LOG_DIRECTORY_PATH";
+    own_path_under_current_context "$LOG_DIRECTORY_PATH";
+fi
+
+### SHOW ACTIONS ###
+
+function show_startup_actions {
+	show_actions_by_type "startup"
+	# Wait for user interaction
+	echo -n "Hit Enter to go back to the menu";
+	read back
+}
+
+function show_recurring_actions {
+	show_actions_by_type "recurring"
+	# Wait for user interaction
+	echo -n "Hit Enter to go back to the menu";
+	read back
+}
+
+function show_exception_actions {
+	show_actions_by_type "exception"
+	# Wait for user interaction
+	echo -n "Hit Enter to go back to the menu";
+	read back
+}
+
+### CREATE ACTIONS ###
+
+function add_new_action {
+	echo "===================================================================================";
+	echo "                                  ADD NEW ACTIONS                                  ";
+	echo "===================================================================================";
+	echo '';
+	while :
+	do
+		clear
+		echo -n "Select action type to add a new one (startup, recurring, exception). To go back to main menu, use letter 'B' instead: "
+		read type
+		if [ "$type" == "startup" ]; then        
+			add_action_by_type "startup"
+		elif [ "$type" == "recurring" ]; then
+			add_action_by_type "recurring"
+		elif [ "$type" == "exception" ]; then
+			add_action_by_type "exception"
+		elif [ "$type" == "b" ] || [ "$type" == "B" ]; then
+			break
+		fi
+	done
+}
+
+function add_action_by_type {
+	# Empty initialization to avoid variable value reuse
+	alias='';
+	description='';
+	command='';
+	type='';
+	recurring_interval='';
+	confirm='';
+	
+	while [ -z "$alias" ];
+	do
+		echo -n "Write action alias (mandatory and uniquely identifiable name): ";
+		read alias;
+		alias="${alias//[^a-zA-Z0-9\ \-\_]/}" && \
+		alias="${alias,,}";
+		
+		# Check if the alias already exists
+		statement="SELECT alias FROM action WHERE alias LIKE '%$alias' AND alias LIKE '$alias%'";
+		db_alias=$(sqlite3 $DATABASE_FILE_PATH "$statement");
+
+		if [ "$db_alias" = "$alias" ]; then
+			echo "The alias specified is already associated to an existing action. Please, try a different one.";
+			alias='';
+		fi
+	done
+	
+	while [ -z "$command" ];
+	do
+		echo -n "Write the command of the action (mandatory): ";
+		read command;
+		if [[ $command == *";"* ]] || [[ $command == *"--"* ]] || [[ $command == *"/*"* ]] || [[ $command == *"*/"* ]]; then
+			command='';
+		fi
+	done
+	
+	echo -n "Write an action description (optional): "
+	read description;
+	description="${description//[^a-zA-Z0-9\-\_\ \.\,\:\;]/}" && \
+	description="${description,,}";
+	
+	if [ "$1" == "startup" ]; then         
+		type='startup';
+		#Interval input on startup is "@reboot"
+		recurring_interval='@reboot';
+		
+		# Show summary and confirm action creation
+		while [ -z "$confirm" ];
+		do
+			show_add_action_summary_banner;
+			echo "Alias: $alias";
+			echo "Type: $type"; 
+			echo "Description: $description";
+			echo "Command: $command"; 
+			#echo "Recurring: $recurring_interval";
+			echo '';
+			echo -n 'Confirm and add this action? This action will run on the next system reboot. Use "Y" key to confirm or any other key to cancel: ';
+			read confirm;
+		done
+		
+	elif [ "$1" == "recurring" ]; then
+		type='recurring';
+		
+		#Manage recurring interval input
+		not_valid="1";
+	        while [ $not_valid -eq "1" ];
+		do
+			show_min_cron_info
+			echo -n "Insert a valid minute expression: "
+			read min
+			not_valid=$(check_interval_value_validity "min" "$min");
+		done
+	        
+	        not_valid="1";
+	        while [ $not_valid -eq "1" ];
+		do
+	        	show_hou_cron_info
+	        	echo -n "Insert a valid hour expression: ";
+	        	read hou;
+	        	not_valid=$(check_interval_value_validity "hou" "$hou");
+	        done
+	        
+	        not_valid="1";
+	        while [ $not_valid -eq "1" ];
+		do
+	        	show_dom_cron_info;
+	        	echo -n "Insert a valid day of the month expression: ";
+	        	read dom;
+	        	not_valid=$(check_interval_value_validity "dom" "$dom");
+	        done
+	        
+	        not_valid="1";
+	        while [ $not_valid -eq "1" ];
+		do
+	        	show_mon_cron_info;
+	        	echo -n "Insert a valid month expression: ";
+	        	read mon;
+	        	not_valid=$(check_interval_value_validity "mon" "$mon");
+	        done
+	        
+	        not_valid="1";
+	        while [ $not_valid -eq "1" ];
+		do
+	        	show_dow_cron_info
+	        	echo -n "Insert a valid day of the week expression: "
+	        	read dow
+	        	not_valid=$(check_interval_value_validity "dow" "$dow");
+		done
+		
+		recurring_interval="$min $hou $dom $mon $dow";
+		
+		# Show summary and confirm action creation
+		while [ -z "$confirm" ];
+		do
+			show_add_action_summary_banner;
+			echo "Alias: $alias";
+			echo "Type: $type"; 
+			echo "Description: $description";
+			echo "Command: $command"; 
+			echo "Recurring: $recurring_interval";
+			echo '';
+			echo -n 'Confirm and add this action? It will start running depending on the defined recurring interval. Use "Y" key to confirm, any other key to cancel: ';
+			read confirm;
+		done
+		
+	else
+	
+		type='exception';
+		#No interval for exception actions
+		recurring_interval='-';
+		
+		# Show summary and confirm action creation
+		while [ -z "$confirm" ];
+		do
+			show_add_action_summary_banner;
+			echo "Alias: $alias";
+			echo "Type: $type"; 
+			echo "Description: $description";
+			echo "Command: $command"; 
+			#echo "Recurring: $recurring_interval";
+			echo '';
+			echo -n 'Confirm and add this action? Use "Y" key to confirm, any other key to cancel: ';
+			read confirm;
+		done
+		
+	fi
+	
+	if [ "$confirm" = "Y" ] || [ "$confirm" = "y" ]; then
+		persist_action "$alias" "$type" "$description" "$command" "$recurring_interval"
+		echo -n "Added '$type' action successfully! Hit Enter to continue";
+	else
+		echo -n "Action not added! Hit Enter to continue";
+	fi
+	
+	read back;
+	clear;
+}
+
+function check_interval_value_validity {
+	# Depending on the item, select the range of valid values
+	if [ "$1" == "dom" ]; then
+		day_of_month="([012]?[1-9]|[123]0|31)";
+		values=$day_of_month;
+	elif [ "$1" == "mon" ]; then
+		month="([1-9]|1[012])";
+		values=$month;
+	elif [ "$1" == "dow" ]; then
+		day_of_week="([0-6])";
+		values=$day_of_week;
+	elif [ "$1" == "hou" ]; then
+		hour="([01]?\d|2[0123])";
+		values=$hour;
+	else
+		minute="([012345]?\d)";
+		values=$minute
+	fi
+	
+	# Define required regex checks with dynamic values
+	regex_list="^($values\,)+($values)$";
+	regex_range="^$values\-$values$";
+	regex_step="^\*\/$values$";
+	regex_value="^$values$";
+	regex_asterisk="^\*$";
+	
+	
+	# Check the provided value against the dynamic regex check with additional checks for validity
+	is_asterisk=$(echo "$2" | grep -P "$regex_asterisk");
+	is_value=$(echo "$2" | grep -P "$regex_value");
+	is_list=$(echo "$2" | grep -P "$regex_list");
+	is_range=$(echo "$2" | grep -P "$regex_range");
+	is_step=$(echo "$2" | grep -P "$regex_step");
+	IFS='-' read -r -a numbers <<< "$2"
+	
+	if [ -n "$is_asterisk" ]; then
+		echo "0";
+	elif [ -n "$is_value" ]; then
+		echo "0";
+	elif [ -n "$is_list" ]; then
+		echo "0";
+	elif [ -n "$is_range" ] && [ "${numbers[0]}" -lt "${numbers[1]}" ]; then
+		echo "0";
+	elif [ -n "$is_step" ]; then
+		echo "0";
+	else
+		echo "1";
+	fi	
+}
+
+### REMOVE ACTIONS ###
+
+function remove_action {
+	while :
+	do
+		clear;
+		echo "===================================================================================";
+		echo "                                  REMOVE ACTION                                    ";
+		echo "===================================================================================";
+		echo '';
+		echo -n "Select action type to remove an action (startup, recurring, exception). To go back to main menu, use letter 'B' instead: "
+		read type
+		if [ "$type" == "startup" ]; then        
+			remove_action_by_type "startup"
+		elif [ "$type" == "recurring" ]; then
+			remove_action_by_type "recurring"
+		elif [ "$type" == "exception" ]; then
+			remove_action_by_type "exception"
+		elif [ "$type" == "b" ] || [ "$type" == "B" ]; then
+			break
+		fi
+	done
+}
+
+## Execute exception action
+function execute_exception_action {
+	while :
+	do
+		alias='';
+		while [ -z "$alias" ];
+		do
+			show_actions_by_type "exception"
+			echo -n "Copy and paste the alias of the desired action to execute the associated command. To go back to main menu, use letter 'B' instead: "
+			read alias
+			alias="${alias//[^a-zA-Z0-9\ \-\_]/}" && \
+			alias="${alias,,}";
+		done
+		
+		if [ "$alias" == "b" ] || [ "$alias" == "B" ]; then
+			break
+		else
+			get_exception_action_command "$alias"
+			read back;
+		fi
+	done
+}
+
+## Export/import actions
+function export_actions {
+	# If it is the first execution, do basic initialization operations
+	if [ ! -d $EXPORT_DIRECTORY_PATH ]; then
+		mkdir -p "$EXPORT_DIRECTORY_PATH";
+		own_path_under_current_context "$EXPORT_DIRECTORY_PATH";
+	fi
+	
+	confirm='';
+	while [ -z "$confirm" ];
+	do
+		# Return actions created
+		statement="SELECT type AS \"Type of action\", COUNT(*) AS \"Number of actions\" FROM action group by type ORDER BY \"Number of actions\" DESC";
+		actions=$(sqlite3 -header -box $DATABASE_FILE_PATH "$statement");
+		clear;
+		echo "==========================================================";
+		echo "===================== EXPORT ACTIONS =====================";
+		echo "==========================================================";
+		echo '';
+		echo "### Summary of actions:";
+		echo "$actions";
+		echo '';
+		echo "Export will be processed to the directory specified on the configuration file: $EXPORT_DIRECTORY_PATH";
+		echo -n 'Export actions? Use "Y" key to confirm, any other key to cancel: ';
+		read confirm;
+	done
+
+	if [ "$confirm" = "Y" ] || [ "$confirm" = "y" ]; then
+		full_exported_path="$EXPORT_DIRECTORY_PATH/$(date +$EXPORT_FILE_NAME).zip";
+		export_actions_to_zip "$full_exported_path";
+		echo "Exported actions successfully!";
+		echo "Export file path: $full_exported_path";
+		echo -n "Hit Enter to back to main menu.";
+	else
+		echo -n "Export operation cancelled. Hit Enter to go back to main menu.";
+	fi
+	read back;
+	
+}
+
+function import_actions {
+	confirm='';
+	while [ -z "$confirm" ];
+	do
+		clear;
+		echo "==========================================================";
+		echo "===================== IMPORT ACTIONS =====================";
+		echo "==========================================================";
+		echo '';
+		echo "WARNING! The import process is DESTRUCTIVE. It will replace the current actions and its logs with the ones on the specified file to import (the file will be requested).";
+		echo -n 'Continue with import process? Use "Y" key to confirm, any other key to cancel: ';
+		read confirm;
+	done
+	
+	if [ "$confirm" = "Y" ] || [ "$confirm" = "y" ]; then
+		file='';
+		while [ -z "$file" ];
+		do
+			echo "ATTENTION! The next operation is irreversible! Make sure to export existing actions/logs as they will be deleted once this operation runs.";
+			echo -n "Please, provide the absolute path of the file to be imported. To go back to main menu, use letter 'B' instead: ";
+			read file;
+			
+			if [ "$file" == "b" ] || [ "$file" == "B" ]; then
+				break
+			elif [ -f "$file" ]; then
+				validity=$(validate_import_file "$file");
+				if [ "$validity" == "1" ]; then
+					echo "The file specified has not the valid import format. Hit Enter to continue and choose a valid exported file to import.";
+					file='';
+				else
+					# If it is the first execution, do basic initialization operations
+					import_tmp="$IMPORT_DIRECTORY_PATH/tmp";
+					if [ ! -d $IMPORT_DIRECTORY_PATH ]; then
+						mkdir -p "$import_tmp";
+						own_path_under_current_context "$IMPORT_DIRECTORY_PATH";
+					fi
+
+					import_actions_from_zip "$file";
+					echo "Imported actions successfully!";
+					echo -n "Hit Enter to back to main menu.";
+				fi
+				read back;
+			fi
+		done
+	else
+		echo -n "Import operation cancelled. Hit Enter to go back to main menu.";
+		read back;
+	fi
+}
+
+function validate_import_file {
+	# Check the contents and the integrity of the file to import
+	contents=$(unzip -l "$1" 2>/dev/null);
+	is_error="$?";
+	has_db=$(echo "$contents" | grep "PIrate.db");
+	has_cron=$(echo "$contents" | grep "PIrate.cron");
+	has_logs=$(echo "$contents" | grep "PIrate.logs");
+	
+	if [ "$is_error" != "0" ]; then
+		echo "1";
+	elif [ -z "$has_db" ] || [ -z "$has_cron" ] || [ -z "$has_logs" ]; then
+		echo "1";
+	else
+		echo "0";
+	fi
+}

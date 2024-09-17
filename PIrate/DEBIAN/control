@@ -1,0 +1,8 @@
+Package: pirate
+Version: 0.1
+Section: utils
+Priority: optional
+Architecture: all
+Maintainer: Pyth0nK1d <thisisagithubuser@github.com>
+Description: The automatic auditor
+ This application will help you on automating and logging repetitive tasks.
